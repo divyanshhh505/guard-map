@@ -70,8 +70,7 @@ export function DataUpload({
           className={cn(
             "relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300",
             "border-border hover:border-primary/50",
-            isLoading && "pointer-events-none opacity-50",
-            !uploadedFileName && "pulse-glow"
+            isLoading && "pointer-events-none opacity-50"
           )}
         >
           <input
