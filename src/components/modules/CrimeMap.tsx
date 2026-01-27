@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -74,27 +73,62 @@ function createPatrolIcon(): L.DivIcon {
   });
 }
 
-interface MapControllerProps {
-  bounds: MapBounds;
+interface CrimeMapProps {
   incidents: CrimeIncident[];
-  showHeatmap: boolean;
-  showPins: boolean;
+  patrolUnits: PatrolUnit[];
+  mapBounds: MapBounds;
 }
 
-function MapController({ bounds, incidents, showHeatmap, showPins }: MapControllerProps) {
-  const map = useMap();
+export function CrimeMap({ incidents, patrolUnits, mapBounds }: CrimeMapProps) {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
   const markerClusterRef = useRef<any>(null);
   const heatLayerRef = useRef<any>(null);
+  const patrolMarkersRef = useRef<L.Marker[]>([]);
+  
+  const [showPins, setShowPins] = useState(true);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showPatrol, setShowPatrol] = useState(true);
+
+  const patrolIcon = useMemo(() => createPatrolIcon(), []);
+
+  // Initialize map
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    mapRef.current = L.map(mapContainerRef.current, {
+      center: mapBounds.center,
+      zoom: mapBounds.zoom,
+      zoomControl: true,
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    }).addTo(mapRef.current);
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []);
 
   // Update map view when bounds change
   useEffect(() => {
-    map.setView(bounds.center, bounds.zoom);
-  }, [map, bounds]);
+    if (mapRef.current) {
+      mapRef.current.setView(mapBounds.center, mapBounds.zoom);
+    }
+  }, [mapBounds]);
 
   // Marker cluster layer
   useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Clear existing cluster
     if (markerClusterRef.current) {
-      map.removeLayer(markerClusterRef.current);
+      mapRef.current.removeLayer(markerClusterRef.current);
+      markerClusterRef.current = null;
     }
 
     if (showPins) {
@@ -124,20 +158,17 @@ function MapController({ bounds, incidents, showHeatmap, showPins }: MapControll
         markerClusterRef.current.addLayer(marker);
       });
 
-      map.addLayer(markerClusterRef.current);
+      mapRef.current.addLayer(markerClusterRef.current);
     }
-
-    return () => {
-      if (markerClusterRef.current) {
-        map.removeLayer(markerClusterRef.current);
-      }
-    };
-  }, [map, incidents, showPins]);
+  }, [incidents, showPins]);
 
   // Heatmap layer
   useEffect(() => {
+    if (!mapRef.current) return;
+
     if (heatLayerRef.current) {
-      map.removeLayer(heatLayerRef.current);
+      mapRef.current.removeLayer(heatLayerRef.current);
+      heatLayerRef.current = null;
     }
 
     if (showHeatmap) {
@@ -153,31 +184,40 @@ function MapController({ bounds, incidents, showHeatmap, showPins }: MapControll
           1.0: '#ef4444',
         },
       });
-      map.addLayer(heatLayerRef.current);
+      mapRef.current.addLayer(heatLayerRef.current);
     }
+  }, [incidents, showHeatmap]);
 
-    return () => {
-      if (heatLayerRef.current) {
-        map.removeLayer(heatLayerRef.current);
-      }
-    };
-  }, [map, incidents, showHeatmap]);
+  // Patrol markers
+  useEffect(() => {
+    if (!mapRef.current) return;
 
-  return null;
-}
+    // Clear existing patrol markers
+    patrolMarkersRef.current.forEach(marker => {
+      mapRef.current?.removeLayer(marker);
+    });
+    patrolMarkersRef.current = [];
 
-interface CrimeMapProps {
-  incidents: CrimeIncident[];
-  patrolUnits: PatrolUnit[];
-  mapBounds: MapBounds;
-}
+    if (showPatrol) {
+      patrolUnits.forEach((unit) => {
+        const marker = L.marker([unit.latitude, unit.longitude], {
+          icon: patrolIcon,
+        });
 
-export function CrimeMap({ incidents, patrolUnits, mapBounds }: CrimeMapProps) {
-  const [showPins, setShowPins] = useState(true);
-  const [showHeatmap, setShowHeatmap] = useState(false);
-  const [showPatrol, setShowPatrol] = useState(true);
+        marker.bindPopup(`
+          <div style="min-width: 150px;">
+            <div style="font-weight: 600; color: hsl(210, 40%, 98%);">${unit.name}</div>
+            <div style="font-size: 12px; color: hsl(215, 20%, 65%); margin-top: 4px;">
+              Status: <span style="color: ${unit.status === 'AVAILABLE' ? 'hsl(142, 71%, 45%)' : unit.status === 'RESPONDING' ? 'hsl(38, 92%, 50%)' : 'inherit'}">${unit.status}</span>
+            </div>
+          </div>
+        `);
 
-  const patrolIcon = useMemo(() => createPatrolIcon(), []);
+        marker.addTo(mapRef.current!);
+        patrolMarkersRef.current.push(marker);
+      });
+    }
+  }, [patrolUnits, showPatrol, patrolIcon]);
 
   return (
     <div className="relative h-full w-full">
@@ -241,41 +281,8 @@ export function CrimeMap({ incidents, patrolUnits, mapBounds }: CrimeMapProps) {
         </div>
       </div>
 
-      <MapContainer
-        center={mapBounds.center}
-        zoom={mapBounds.zoom}
-        className="h-full w-full"
-        zoomControl={true}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        />
-        
-        <MapController
-          bounds={mapBounds}
-          incidents={incidents}
-          showHeatmap={showHeatmap}
-          showPins={showPins}
-        />
-
-        {showPatrol && patrolUnits.map((unit) => (
-          <Marker
-            key={unit.id}
-            position={[unit.latitude, unit.longitude]}
-            icon={patrolIcon}
-          >
-            <Popup>
-              <div style={{ minWidth: '150px' }}>
-                <div style={{ fontWeight: 600, color: 'hsl(210, 40%, 98%)' }}>{unit.name}</div>
-                <div style={{ fontSize: '12px', color: 'hsl(215, 20%, 65%)', marginTop: '4px' }}>
-                  Status: <span style={{ color: unit.status === 'AVAILABLE' ? 'hsl(142, 71%, 45%)' : unit.status === 'RESPONDING' ? 'hsl(38, 92%, 50%)' : 'inherit' }}>{unit.status}</span>
-                </div>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+      {/* Map Container */}
+      <div ref={mapContainerRef} className="h-full w-full" />
     </div>
   );
 }
