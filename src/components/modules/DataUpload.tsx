@@ -1,8 +1,9 @@
-import { useRef, useCallback } from 'react';
-import { Upload, FileText, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { useRef, useCallback, useState } from 'react';
+import { Upload, FileText, RefreshCw, AlertCircle, CheckCircle, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useAppStore } from '@/store/appStore';
 
 interface DataUploadProps {
   onUpload: (file: File) => Promise<void>;
@@ -20,26 +21,46 @@ export function DataUpload({
   incidentCount 
 }: DataUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isDataReady, setIsDataReady] = useState(false);
+  const { setActiveView } = useAppStore();
 
-  const handleFileSelect = useCallback(async (file: File) => {
+  const handleFileSelect = useCallback((file: File) => {
     if (!file.name.endsWith('.csv')) {
       toast.error('Invalid file format', {
         description: 'Please upload a CSV file'
       });
       return;
     }
+    setPendingFile(file);
+    setIsDataReady(false);
+    toast.info('File selected', {
+      description: `${file.name} ready to process. Click "Run Analysis" to visualize.`
+    });
+  }, []);
+
+  const handleRunAnalysis = useCallback(async () => {
+    if (!pendingFile) {
+      toast.error('No file selected', {
+        description: 'Please upload a CSV file first'
+      });
+      return;
+    }
 
     try {
-      await onUpload(file);
-      toast.success('Data uploaded successfully', {
-        description: `Loaded ${file.name}`
+      await onUpload(pendingFile);
+      setIsDataReady(true);
+      toast.success('Analysis complete', {
+        description: `Loaded ${pendingFile.name} - Navigating to Spatial Analysis`
       });
+      // Navigate to map view
+      setActiveView('map');
     } catch (error) {
-      toast.error('Upload failed', {
+      toast.error('Analysis failed', {
         description: 'Could not parse CSV file. Check the format.'
       });
     }
-  }, [onUpload]);
+  }, [pendingFile, onUpload, setActiveView]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -129,16 +150,32 @@ export function DataUpload({
             </div>
           </div>
 
-          {uploadedFileName && (
+          <div className="space-y-3">
+            {/* Run Analysis Button */}
             <Button 
-              variant="outline" 
               className="w-full"
-              onClick={onReset}
+              onClick={handleRunAnalysis}
+              disabled={!pendingFile || isLoading}
             >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Reset to Demo Data
+              <Play className="w-4 h-4 mr-2" />
+              {isLoading ? 'Processing...' : 'Run Analysis'}
             </Button>
-          )}
+
+            {uploadedFileName && (
+              <Button 
+                variant="outline" 
+                className="w-full"
+                onClick={() => {
+                  onReset();
+                  setPendingFile(null);
+                  setIsDataReady(false);
+                }}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Reset to Demo Data
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Expected Format */}
